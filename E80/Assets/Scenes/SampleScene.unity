@@ -587,6 +587,7 @@ MonoBehaviour:
   truckDoorPrefab: {fileID: 5237937540519811026, guid: f71ec7341507b9a55846333645e2fa24, type: 3}
   palletPrefab: {fileID: 6912139041269147869, guid: de7659ea0bc0f7b9689c5148755ab63a, type: 3}
   wallPrefab: {fileID: 639083240164945478, guid: 3202c1d2bdc173371bcd29825baca53a, type: 3}
+  staticObstaclePrefab: {fileID: 7859636980079499138, guid: 6f57ffadfa9976687b017fbb2ac559ef, type: 3}
   humanObstaclePrefab: {fileID: 5196525203756104260, guid: 2c58606fde9bc778cac09f59d8b799f5, type: 3}
   stationOutageIndicatorPrefab: {fileID: 4635887202953295915, guid: 8843b0b4ff18ec956bba987a3d4324ac, type: 3}
 --- !u!4 &1833963257

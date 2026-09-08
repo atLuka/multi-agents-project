@@ -42,6 +42,7 @@ Y_HEIGHT = 0.0                        # flat floor; bump this if a prefab's pivo
 EOF_MARKER = b"<EOF>"
 
 
+
 def _cell_center(x, y):
     """World-space (x, z) for the center of a single grid cell (x, y)."""
     return round((x + 0.5) * CELL_SIZE_M, 4), round((y + 0.5) * CELL_SIZE_M, 4)
@@ -74,11 +75,17 @@ def _arena_wall_cells():
 CS_ID_BY_POS = {(cs["x"], cs["y"]): cs["id"] for cs in CONFIG["charging_stations"]}
 
 
-def environment_payload():
+def environment_payload(obstacles=()):
     """Build the one-time 'environment' message describing every static
     element, straight from CONFIG -- the same source of truth the matplotlib
     plot and the AgentPy grid use, so Unity's layout always matches the
     Python layout exactly.
+
+    `obstacles` is model.obstacles: a set of (x, y) cells chosen once at
+    setup() time. Unlike everything else here, these aren't in CONFIG --
+    they're placed randomly (per the model's seed) inside setup(), so this
+    function can only include them once a model has already been set up.
+    See run_once(), which builds the model before calling this.
 
     Everything is expressed as a list of single-cell points rather than one
     scaled block per element: real-world prefabs (a shelf, a wall segment, a
@@ -137,6 +144,7 @@ def environment_payload():
         "truck_dock": truck_dock,
         "pallet_positions": pallet_positions,
         "walls": _arena_wall_cells(),
+        "static_obstacles": [_point(ox, oy) for (ox, oy) in obstacles],
     }
 
 
@@ -174,7 +182,8 @@ def agv_positions_payload(model):
         pt = _point(vx, vy)
         pt["id"] = p.id
 
-        # Elevate the pallet slightly so it visibly sits ON the AGV
+        # Elevate the pallet slightly so it visibly sits ON the AGV, and
+        # nudge it along +X so it isn't dead-center on top of it.
         if p.status == "being_transported":
             pt["x"] += 0.15
 
@@ -216,16 +225,19 @@ def send_json(sock, payload):
 
 
 def run_once(sock, step_delay, verbose):
-    # Environment first: Unity spawns racks/CS/parking/production line/truck
-    # dock/pallets exactly once per connection, before any AGV moves.
-    send_json(sock, environment_payload())
-    if verbose:
-        print("sent environment layout (racks, charging stations, parking slot, "
-              "production line, truck dock, pallet slots)")
-
     model = MultiAGVSystem()
     model.setup()
     model.t = 0
+
+    # Environment first: Unity spawns racks/CS/parking/production line/truck
+    # dock/pallets/static obstacles exactly once per connection, before any
+    # AGV moves. Has to come after model.setup() -- model.obstacles is
+    # chosen randomly (per the model's seed) inside setup(), it isn't part
+    # of the static CONFIG.
+    send_json(sock, environment_payload(model.obstacles))
+    if verbose:
+        print("sent environment layout (racks, charging stations, parking slot, "
+              "production line, truck dock, pallet slots, static obstacles)")
 
     for _ in range(model.N_STEPS):
         model.t += 1

@@ -35,6 +35,7 @@ public class TCPIPServerAsync : MonoBehaviour
     public GameObject truckDoorPrefab;           // one instance per dock door cell
     public GameObject palletPrefab;              // one instance per pallet slot
     public GameObject wallPrefab;                // one instance per arena border cell (north/south edges)
+    public GameObject staticObstaclePrefab;      // one instance per fixed obstacle cell (placed once at setup, never moves)
 
     [Header("Dynamic Event Prefabs")]
     public GameObject humanObstaclePrefab;          // one instance per active pedestrian; falls back to a capsule
@@ -211,13 +212,7 @@ public class TCPIPServerAsync : MonoBehaviour
                 foreach (var c in r.cells)
                 {
                     GameObject go = SpawnPoint(rackPrefab, c.x, c.y, c.z, "Rack_" + r.id + "_" + (i++));
-                    if (go != null) {
-                        if (r.id == "rack_vertical")
-                        {
-                            go.transform.Rotate(0, 90, 0); // Rotate vertical racks by 90 degrees
-                        }
-                        environmentObjects.Add(go);
-                    }
+                    if (go != null) environmentObjects.Add(go);
                 }
             }
         }
@@ -293,6 +288,16 @@ public class TCPIPServerAsync : MonoBehaviour
             foreach (var c in env.walls)
             {
                 GameObject go = SpawnPoint(wallPrefab, c.x, c.y, c.z, "Wall_" + (i++));
+                if (go != null) environmentObjects.Add(go);
+            }
+        }
+
+        if (env.static_obstacles != null)
+        {
+            int i = 0;
+            foreach (var c in env.static_obstacles)
+            {
+                GameObject go = SpawnPoint(staticObstaclePrefab, c.x, c.y, c.z, "StaticObstacle_" + (i++));
                 if (go != null) environmentObjects.Add(go);
             }
         }
@@ -627,4 +632,5 @@ public class EnvironmentPayload
     public TruckDockSpec truck_dock;
     public List<PalletSpec> pallet_positions;
     public List<AgentPosition> walls; // NEW: one entry per arena border cell
+    public List<AgentPosition> static_obstacles; // NEW: fixed obstacles chosen once at setup()
 }
