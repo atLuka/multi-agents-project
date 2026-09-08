@@ -1,8 +1,5 @@
-# TC2008B. Sistemas Multiagentes y Graficas Computacionales
-# RoboArena 4.0 - Multi-agent AGV fleet simulation (Python side)
-# Updated to match RoboArena_M4.ipynb: A* routing, an MDP-driven collision
-# policy, and Phase 2 dynamics (periodic logistics flows, dynamic obstacles,
-# moving pedestrians on multiple routes, and charging-station outages).
+# All methods are extracted from RoboArena_M4.ipynb, because we could not get the jupyter notebook to work with unity.
+#So we had to extract the methods and put them in a separate file.
 
 import random
 import itertools
@@ -11,13 +8,11 @@ import heapq
 import agentpy as ap
 import numpy as np
 
-# ---------------------------------------------------------------------------
-# Step 2 - Layout parameters
-# ---------------------------------------------------------------------------
+#Envoriment
 CONFIG = {
-    "cell_size_m": 0.3,     # ~ AGV footprint
-    "grid_width": 15,       # 15 * 0.3 = 4.5 m
-    "grid_height": 12,      # 12 * 0.3 = 3.6 m (real platform is ~3.5 m)
+    "cell_size_m": 0.3,
+    "grid_width": 15,
+    "grid_height": 12,
 
     "production_line": {
         "id": "production_line",
@@ -32,7 +27,7 @@ CONFIG = {
 
     "racks": [
         {"id": "rack_top",       "x": 5, "y": 10, "w": 5, "h": 2, "pallet_face": "bottom"},
-        {"id": "rack_mid_upper", "x": 3, "y": 6,  "w": 4, "h": 2, "pallet_face": "top"},   # top, not bottom, so it doesn't sit right on the narrow gap
+        {"id": "rack_mid_upper", "x": 3, "y": 6,  "w": 4, "h": 2, "pallet_face": "top"},
         {"id": "rack_mid_lower", "x": 3, "y": 3,  "w": 4, "h": 2, "pallet_face": "bottom"},
         {"id": "rack_vertical",  "x": 9, "y": 3,  "w": 2, "h": 5, "pallet_face": "left"},
     ],
@@ -45,7 +40,6 @@ CONFIG = {
     "parking_slot": {"id": "parking_1", "x": 6, "y": 0, "w": 3, "h": 1},
 }
 
-# codes for the zone_map array, only used for plotting/debugging
 ZONE_CODES = {
     "corridor": 0,
     "rack": 1,
@@ -92,11 +86,8 @@ for _rack in CONFIG["racks"]:
         })
 
 
-# ---------------------------------------------------------------------------
-# Step 3 - Environment model (AgentPy)
-# ---------------------------------------------------------------------------
+#Environment model
 class StaticZoneAgent(ap.Agent):
-    # just holds the type of one grid cell, no behavior for this activity
 
     def setup(self):
         self.zone_type = None
@@ -177,12 +168,9 @@ env = LogisticsEnvironment(CONFIG)
 env.setup()
 
 
-# ---------------------------------------------------------------------------
-# Step 6 - Connectivity check
-# ---------------------------------------------------------------------------
+#Connectivity check
 def mask_fully_connected(mask, ref):
-    # true if every walkable cell is still reachable from ref -- used to check an
-    # obstacle placement doesn't wall off part of the warehouse
+
     from collections import deque
     H, W = mask.shape
     if not mask[ref[1], ref[0]]:
@@ -202,17 +190,12 @@ def mask_fully_connected(mask, ref):
 W_MASK = env.walkable
 
 
-# ---------------------------------------------------------------------------
-# Step 6b - Pathfinding (A*)
-# ---------------------------------------------------------------------------
-# Mission states that still "reserve" a resource (a destination slot/door, or a pallet
-# as an in-flight origin), so a second flow-generation attempt doesn't double-book it.
+
+#Pathfinding (A*)
 ACTIVE_MISSION_STATUSES = ("Pending", "Assigned", "InProgress")
 
 
 def _astar_core(walkable, start, goal, blocked, cost_fn):
-    # blocked cells are impassable except the goal itself; cost_fn (unused for now,
-    # left in for later) would add an extra cost on top of the normal step cost.
     if start == goal:
         return [start]
     H, W = walkable.shape
@@ -229,7 +212,7 @@ def _astar_core(walkable, start, goal, blocked, cost_fn):
     def h(cell):
         return abs(cell[0] - goal[0]) + abs(cell[1] - goal[1])
 
-    tie = itertools.count()  # stable tie-breaker so heap never compares tuples of cells
+    tie = itertools.count()
     open_heap = [(h(start), next(tie), start)]
     g_score = {start: 0.0}
     prev = {}
@@ -276,18 +259,13 @@ def astar_path_avoiding(walkable, start, goal, blocked, cost_fn=None):
     return _astar_core(walkable, start, goal, blocked, cost_fn)
 
 
-# ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# Step 7 - Cooperate/Defect payoff matrix
-# ---------------------------------------------------------------------------
+#Cooperate/Defect payoff matrix
 PAYOFF = {("C", "C"): (10, 10), ("C", "D"): (5, 0), ("D", "C"): (0, 5), ("D", "D"): (0, 0)}
 
 
-# ---------------------------------------------------------------------------
-# Step 7b - MDP-driven collision resolution policy
-# ---------------------------------------------------------------------------
+#MDP-driven collision resolution policy
 COLLISION_AGING_BUCKETS = (0, 1, 2, 3)              # 3 means "3 or more"
 COLLISION_STAKE_BUCKETS = ("LOW", "MED", "HIGH")    # Available/ToCharge, ToPickup, Transporting
 
@@ -354,9 +332,7 @@ def collision_stake_bucket(status):
     return {"Transporting": "HIGH", "ToPickup": "MED"}.get(status, "LOW")
 
 
-# ---------------------------------------------------------------------------
-# Step 8 - Pallets and missions
-# ---------------------------------------------------------------------------
+# Pallets and missions
 class Pallet:
     def __init__(self, pid, position, status):
         self.id, self.position, self.status = pid, position, status
@@ -379,9 +355,7 @@ class Mission:
         return f"Mission({self.id},{self.flow},{self.origin}->{self.destination},{self.status})"
 
 
-# ---------------------------------------------------------------------------
-# Step 9 - AGV agent and the multi-agent system model
-# ---------------------------------------------------------------------------
+#AGV agent and the multi-agent system model
 class AGVAgent(ap.Agent):
     def setup(self):
         self.label = None

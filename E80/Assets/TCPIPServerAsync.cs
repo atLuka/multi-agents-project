@@ -212,7 +212,17 @@ public class TCPIPServerAsync : MonoBehaviour
                 foreach (var c in r.cells)
                 {
                     GameObject go = SpawnPoint(rackPrefab, c.x, c.y, c.z, "Rack_" + r.id + "_" + (i++));
-                    if (go != null) environmentObjects.Add(go);
+                    
+                    if (go != null) 
+                    {
+                        // Rotate the individual spawned prefab 90 degrees on the Y-axis
+                        if (r.id == "rack_vertical")
+                        {
+                            go.transform.Rotate(0, 90f, 0);
+                        }
+                        
+                        environmentObjects.Add(go);
+                    }
                 }
             }
         }

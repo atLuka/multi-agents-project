@@ -54,13 +54,6 @@ def _point(x, y):
 
 
 def _arena_wall_cells():
-    """Points for a rectangular border one cell outside the grid, on the
-    north (y=-1) and south (y=grid_height) edges only -- the production
-    line (x=0) and truck dock (x=grid_width-1) already run the full height
-    of the grid and act as the east/west walls, so walling those columns
-    again would just duplicate geometry. The x range runs from -1 to
-    grid_width inclusive so the two end caps close off the corners too.
-    """
     w, h = CONFIG["grid_width"], CONFIG["grid_height"]
     cells = []
     for x in range(-1, w + 1):
@@ -69,9 +62,7 @@ def _arena_wall_cells():
     return cells
 
 
-# Charging station id, looked up by grid cell -- lets the per-step "agents"
-# message report an outage by the same id Unity already knows from the
-# one-time environment message, instead of a raw coordinate.
+# Charging station id,
 CS_ID_BY_POS = {(cs["x"], cs["y"]): cs["id"] for cs in CONFIG["charging_stations"]}
 
 
@@ -80,19 +71,6 @@ def environment_payload(obstacles=()):
     element, straight from CONFIG -- the same source of truth the matplotlib
     plot and the AgentPy grid use, so Unity's layout always matches the
     Python layout exactly.
-
-    `obstacles` is model.obstacles: a set of (x, y) cells chosen once at
-    setup() time. Unlike everything else here, these aren't in CONFIG --
-    they're placed randomly (per the model's seed) inside setup(), so this
-    function can only include them once a model has already been set up.
-    See run_once(), which builds the model before calling this.
-
-    Everything is expressed as a list of single-cell points rather than one
-    scaled block per element: real-world prefabs (a shelf, a wall segment, a
-    dock door) are already modeled at their intended size, so a multi-cell
-    rack or wall is built by tiling one unscaled prefab per cell instead of
-    stretching a single instance to fit -- stretching only makes sense for
-    prefabs that start life as a plain 1x1 unit cube, which these aren't.
     """
 
     racks = []
