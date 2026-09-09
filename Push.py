@@ -42,6 +42,7 @@ Y_HEIGHT = 0.0                        # flat floor; bump this if a prefab's pivo
 EOF_MARKER = b"<EOF>"
 
 
+
 def _cell_center(x, y):
     """World-space (x, z) for the center of a single grid cell (x, y)."""
     return round((x + 0.5) * CELL_SIZE_M, 4), round((y + 0.5) * CELL_SIZE_M, 4)
@@ -52,18 +53,24 @@ def _point(x, y):
     return {"x": wx, "y": Y_HEIGHT, "z": wz}
 
 
-def environment_payload():
+def _arena_wall_cells():
+    w, h = CONFIG["grid_width"], CONFIG["grid_height"]
+    cells = []
+    for x in range(-1, w + 1):
+        cells.append(_point(x, -1))
+        cells.append(_point(x, h))
+    return cells
+
+
+# Charging station id,
+CS_ID_BY_POS = {(cs["x"], cs["y"]): cs["id"] for cs in CONFIG["charging_stations"]}
+
+
+def environment_payload(obstacles=()):
     """Build the one-time 'environment' message describing every static
     element, straight from CONFIG -- the same source of truth the matplotlib
     plot and the AgentPy grid use, so Unity's layout always matches the
     Python layout exactly.
-
-    Everything is expressed as a list of single-cell points rather than one
-    scaled block per element: real-world prefabs (a shelf, a wall segment, a
-    dock door) are already modeled at their intended size, so a multi-cell
-    rack or wall is built by tiling one unscaled prefab per cell instead of
-    stretching a single instance to fit -- stretching only makes sense for
-    prefabs that start life as a plain 1x1 unit cube, which these aren't.
     """
 
     racks = []
@@ -114,6 +121,8 @@ def environment_payload():
         "production_line": production_line,
         "truck_dock": truck_dock,
         "pallet_positions": pallet_positions,
+        "walls": _arena_wall_cells(),
+        "static_obstacles": [_point(ox, oy) for (ox, oy) in obstacles],
     }
 
 
@@ -123,23 +132,70 @@ def agv_positions_payload(model):
         gx, gy = a.pos
         data.append(_point(gx, gy))
 
+    # sim.py only updates Pallet.position once, at delivery (see
+    # MultiAGVSystem._update_agv: "elif a.status == 'Transporting' and not
+    # a.path: pallet.position = a.pos"). While a pallet is mid-transport,
+    # p.position is still frozen at its pickup point -- it's the AGV's own
+    # a.pos that's actually moving. So for a carried pallet we look up its
+    # carrier's live grid position instead of using p.position directly;
+    # this is purely a visualization fix (which coordinate we report to
+    # Unity), not a change to the simulation's own state.
+    carrier_pos_by_pallet_id = {
+        a.carried_pallet: a.pos for a in model.agvs if a.carried_pallet is not None
+    }
+
     pallets_data = []
     for p in model.pallets.values():
-        if p.status != "being_transported":
+        if p.status == "being_transported" and p.id in carrier_pos_by_pallet_id:
+            vx, vy = carrier_pos_by_pallet_id[p.id]
+        elif p.status != "being_transported":
             vx, vy = model.visual_pallet_position(p.position)
         else:
+            # Fallback for the one-tick edge case where a pallet is marked
+            # being_transported but its carrier isn't found (shouldn't
+            # normally happen) -- better to show it at its last known spot
+            # than to crash.
             vx, vy = p.position
 
         pt = _point(vx, vy)
         pt["id"] = p.id
 
-        # Elevate the pallet slightly so it visibly sits ON the AGV
+        # Elevate the pallet slightly so it visibly sits ON the AGV, and
+        # nudge it along +X so it isn't dead-center on top of it.
         if p.status == "being_transported":
-            pt["y"] = 0.5
+            pt["x"] += 0.15
 
         pallets_data.append(pt)
 
-    return {"type": "agents", "data": data, "pallets": pallets_data}
+    # Pedestrians come and go (spawn, walk their route, despawn), so each one
+    # needs a stable id for as long as it exists. `id(ped)` (Python's
+    # built-in object identity) works here because sim.py's
+    # _update_pedestrians() keeps reusing the same dict for an active
+    # pedestrian across steps -- it's only ever appended once and dropped,
+    # never rebuilt -- so the id stays constant for that pedestrian's whole
+    # lifetime and simply stops appearing once it's gone.
+    pedestrians_data = []
+    for ped in model.pedestrians:
+        px, py = ped["path"][ped["idx"]]
+        pt = _point(px, py)
+        pt["id"] = f"ped_{id(ped)}"
+        pedestrians_data.append(pt)
+
+    # Only currently-down stations are listed; Unity treats any charging
+    # station id NOT in this list as back online.
+    station_outages_data = []
+    for (sx, sy) in model.station_outage:
+        pt = _point(sx, sy)
+        pt["id"] = CS_ID_BY_POS.get((sx, sy), f"cs_{sx}_{sy}")
+        station_outages_data.append(pt)
+
+    return {
+        "type": "agents",
+        "data": data,
+        "pallets": pallets_data,
+        "pedestrians": pedestrians_data,
+        "station_outages": station_outages_data,
+    }
 
 def send_json(sock, payload):
     message = json.dumps(payload).encode("utf-8") + EOF_MARKER
@@ -147,16 +203,19 @@ def send_json(sock, payload):
 
 
 def run_once(sock, step_delay, verbose):
-    # Environment first: Unity spawns racks/CS/parking/production line/truck
-    # dock/pallets exactly once per connection, before any AGV moves.
-    send_json(sock, environment_payload())
-    if verbose:
-        print("sent environment layout (racks, charging stations, parking slot, "
-              "production line, truck dock, pallet slots)")
-
     model = MultiAGVSystem()
     model.setup()
     model.t = 0
+
+    # Environment first: Unity spawns racks/CS/parking/production line/truck
+    # dock/pallets/static obstacles exactly once per connection, before any
+    # AGV moves. Has to come after model.setup() -- model.obstacles is
+    # chosen randomly (per the model's seed) inside setup(), it isn't part
+    # of the static CONFIG.
+    send_json(sock, environment_payload(model.obstacles))
+    if verbose:
+        print("sent environment layout (racks, charging stations, parking slot, "
+              "production line, truck dock, pallet slots, static obstacles)")
 
     for _ in range(model.N_STEPS):
         model.t += 1
@@ -167,6 +226,10 @@ def run_once(sock, step_delay, verbose):
 
         if verbose:
             print(f"[t={model.t:02d}] sent {len(model.agvs)} AGV positions -> {payload['data']}")
+            if payload["station_outages"]:
+                print(f"    STATION OUTAGE active: {payload['station_outages']}")
+            if payload["pedestrians"]:
+                print(f"    PEDESTRIAN active: {payload['pedestrians']}")
 
         if step_delay > 0:
             time.sleep(step_delay)

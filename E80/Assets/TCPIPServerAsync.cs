@@ -34,6 +34,12 @@ public class TCPIPServerAsync : MonoBehaviour
     public GameObject truckDockWallPrefab;       // stretched along the whole truck dock column
     public GameObject truckDoorPrefab;           // one instance per dock door cell
     public GameObject palletPrefab;              // one instance per pallet slot
+    public GameObject wallPrefab;                // one instance per arena border cell (north/south edges)
+    public GameObject staticObstaclePrefab;      // one instance per fixed obstacle cell (placed once at setup, never moves)
+
+    [Header("Dynamic Event Prefabs")]
+    public GameObject humanObstaclePrefab;          // one instance per active pedestrian; falls back to a capsule
+    public GameObject stationOutageIndicatorPrefab; // shown over a charging station while it's out of service
 
     private Thread socketThread;
     private volatile bool keepReading = false;
@@ -46,6 +52,8 @@ public class TCPIPServerAsync : MonoBehaviour
     private readonly List<GameObject> agentObjects = new List<GameObject>();
     private readonly List<GameObject> environmentObjects = new List<GameObject>();
     private Dictionary<string, GameObject> activePallets = new Dictionary<string, GameObject>();
+    private Dictionary<string, GameObject> activePedestrians = new Dictionary<string, GameObject>();
+    private Dictionary<string, GameObject> activeStationOutages = new Dictionary<string, GameObject>();
     private const string EOF_MARKER = "<EOF>";
 
     void Start()
@@ -189,6 +197,11 @@ public class TCPIPServerAsync : MonoBehaviour
         if (env == null) return;
 
         ClearEnvironment();
+        // A fresh "environment" message means a new simulation run started
+        // (e.g. push_client.py's --loop reconnecting) -- clear out AGVs,
+        // pallets, pedestrians, and outage indicators from the previous run
+        // too, or they'd sit there as stale leftovers.
+        ClearDynamicState();
 
         if (env.racks != null)
         {
@@ -199,7 +212,17 @@ public class TCPIPServerAsync : MonoBehaviour
                 foreach (var c in r.cells)
                 {
                     GameObject go = SpawnPoint(rackPrefab, c.x, c.y, c.z, "Rack_" + r.id + "_" + (i++));
-                    if (go != null) environmentObjects.Add(go);
+                    
+                    if (go != null) 
+                    {
+                        // Rotate the individual spawned prefab 90 degrees on the Y-axis
+                        if (r.id == "rack_vertical")
+                        {
+                            go.transform.Rotate(0, 90f, 0);
+                        }
+                        
+                        environmentObjects.Add(go);
+                    }
                 }
             }
         }
@@ -269,7 +292,25 @@ public class TCPIPServerAsync : MonoBehaviour
             }
         }
 
-        
+        if (env.walls != null)
+        {
+            int i = 0;
+            foreach (var c in env.walls)
+            {
+                GameObject go = SpawnPoint(wallPrefab, c.x, c.y, c.z, "Wall_" + (i++));
+                if (go != null) environmentObjects.Add(go);
+            }
+        }
+
+        if (env.static_obstacles != null)
+        {
+            int i = 0;
+            foreach (var c in env.static_obstacles)
+            {
+                GameObject go = SpawnPoint(staticObstaclePrefab, c.x, c.y, c.z, "StaticObstacle_" + (i++));
+                if (go != null) environmentObjects.Add(go);
+            }
+        }
 
         Debug.Log("Environment built: " + environmentObjects.Count + " objects spawned.");
     }
@@ -286,7 +327,11 @@ public class TCPIPServerAsync : MonoBehaviour
             Debug.LogWarning("No prefab assigned for " + name + " -- skipping. Assign one in the Inspector.");
             return null;
         }
-        GameObject go = Instantiate(prefab, new Vector3(x, y, z) * positionScale, Quaternion.identity);
+        // Use the prefab's own baked-in rotation instead of forcing
+        // Quaternion.identity -- otherwise any prefab authored with a
+        // non-zero rotation (like a wall rotated 90 on Y) gets silently
+        // flattened back to 0 on every spawn.
+        GameObject go = Instantiate(prefab, new Vector3(x, y, z) * positionScale, prefab.transform.rotation);
         go.name = name;
         return go;
     }
@@ -298,6 +343,33 @@ public class TCPIPServerAsync : MonoBehaviour
             if (go != null) Destroy(go);
         }
         environmentObjects.Clear();
+    }
+
+    void ClearDynamicState()
+    {
+        foreach (var go in agentObjects)
+        {
+            if (go != null) Destroy(go);
+        }
+        agentObjects.Clear();
+
+        foreach (var kv in activePallets)
+        {
+            if (kv.Value != null) Destroy(kv.Value);
+        }
+        activePallets.Clear();
+
+        foreach (var kv in activePedestrians)
+        {
+            if (kv.Value != null) Destroy(kv.Value);
+        }
+        activePedestrians.Clear();
+
+        foreach (var kv in activeStationOutages)
+        {
+            if (kv.Value != null) Destroy(kv.Value);
+        }
+        activeStationOutages.Clear();
     }
 
     // -----------------------------------------------------------------
@@ -354,6 +426,80 @@ public class TCPIPServerAsync : MonoBehaviour
             }
         }
     }
+
+    UpdatePedestrians(agentData.pedestrians);
+    UpdateStationOutages(agentData.station_outages);
+    }
+
+    // Pedestrians spawn, walk their route, and despawn -- unlike pallets,
+    // an id missing from this frame's list means that pedestrian is gone
+    // for good, so its GameObject is destroyed rather than left in place.
+    void UpdatePedestrians(List<PedestrianUpdate> pedestrians)
+    {
+        var seen = new HashSet<string>();
+        if (pedestrians != null)
+        {
+            foreach (var p in pedestrians)
+            {
+                seen.Add(p.id);
+                if (!activePedestrians.ContainsKey(p.id))
+                {
+                    GameObject go = humanObstaclePrefab != null
+                        ? Instantiate(humanObstaclePrefab)
+                        : GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                    go.name = "Pedestrian_" + p.id;
+                    activePedestrians[p.id] = go;
+                }
+                activePedestrians[p.id].transform.position = new Vector3(p.x, p.y, p.z) * positionScale;
+            }
+        }
+        RemoveStale(activePedestrians, seen);
+    }
+
+    // Charging stations are always known (spawned once from the environment
+    // message); this only tracks which ones currently have an outage
+    // indicator floating over them. A station id missing from this frame's
+    // list means it's back online, so its indicator is removed.
+    void UpdateStationOutages(List<StationOutageUpdate> outages)
+    {
+        var seen = new HashSet<string>();
+        if (outages != null)
+        {
+            foreach (var o in outages)
+            {
+                seen.Add(o.id);
+                if (!activeStationOutages.ContainsKey(o.id))
+                {
+                    GameObject go = stationOutageIndicatorPrefab != null
+                        ? Instantiate(stationOutageIndicatorPrefab)
+                        : GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    go.name = "StationOutage_" + o.id;
+                    activeStationOutages[o.id] = go;
+                }
+                activeStationOutages[o.id].transform.position = new Vector3(o.x, o.y, o.z) * positionScale;
+            }
+        }
+        RemoveStale(activeStationOutages, seen);
+    }
+
+    // Destroys and removes any tracked GameObject whose id wasn't present
+    // in this frame's message -- shared cleanup for pedestrians and station
+    // outage indicators, both of which can disappear entirely between frames.
+    void RemoveStale(Dictionary<string, GameObject> tracked, HashSet<string> seenIds)
+    {
+        List<string> toRemove = null;
+        foreach (var kv in tracked)
+        {
+            if (!seenIds.Contains(kv.Key))
+            {
+                if (kv.Value != null) Destroy(kv.Value);
+                (toRemove ?? (toRemove = new List<string>())).Add(kv.Key);
+            }
+        }
+        if (toRemove != null)
+        {
+            foreach (var key in toRemove) tracked.Remove(key);
+        }
     }
 
     void StopServer()
@@ -409,11 +555,31 @@ public class PalletUpdate
 }
 
 [Serializable]
+public class PedestrianUpdate
+{
+    public string id;
+    public float x;
+    public float y;
+    public float z;
+}
+
+[Serializable]
+public class StationOutageUpdate
+{
+    public string id;
+    public float x;
+    public float y;
+    public float z;
+}
+
+[Serializable]
 public class AgentData
 {
     public string type;
     public List<AgentPosition> data;
-    public List<PalletUpdate> pallets; // NEW
+    public List<PalletUpdate> pallets;
+    public List<PedestrianUpdate> pedestrians;         // NEW
+    public List<StationOutageUpdate> station_outages;  // NEW
 }
 
 [Serializable]
@@ -475,4 +641,6 @@ public class EnvironmentPayload
     public ProductionLineSpec production_line;
     public TruckDockSpec truck_dock;
     public List<PalletSpec> pallet_positions;
+    public List<AgentPosition> walls; // NEW: one entry per arena border cell
+    public List<AgentPosition> static_obstacles; // NEW: fixed obstacles chosen once at setup()
 }

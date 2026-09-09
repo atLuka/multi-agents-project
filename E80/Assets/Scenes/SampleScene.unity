@@ -318,13 +318,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 1, z: -10}
+  m_LocalRotation: {x: 0.7071068, y: 0, z: 0, w: 0.7071068}
+  m_LocalPosition: {x: 7, y: 13, z: 7}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 90, y: 0, z: 0}
 --- !u!114 &330585547
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -578,14 +578,18 @@ MonoBehaviour:
   port: 1126
   agentPrefab: {fileID: 6532082344641167365, guid: 867db93cf319f563e92f11ce053d4ce3, type: 3}
   positionScale: 3.3
-  rackPrefab: {fileID: 8952305551041961736, guid: df8f801082823cde9bb798c2eb1f122a, type: 3}
+  rackPrefab: {fileID: 795283278710515930, guid: df8f801082823cde9bb798c2eb1f122a, type: 3}
   chargingStationPrefab: {fileID: 2315381930204317159, guid: 86ed307dd861f622a90c7db44c2e5cb2, type: 3}
   parkingSlotPrefab: {fileID: 3744018595143443159, guid: 1bacaf69e67d539438d1d32697670f5e, type: 3}
   productionLineWallPrefab: {fileID: 4473578968188919803, guid: 3fa432b51ada9f16fb0ffefad09faebe, type: 3}
   productionOutputPrefab: {fileID: 280067129406731736, guid: 025b0e6c0ff0a7cee87b34617d19b4a7, type: 3}
   truckDockWallPrefab: {fileID: 8299702930601183431, guid: 6b1c09dc158ae0f839e5ab6072f6b33b, type: 3}
   truckDoorPrefab: {fileID: 5237937540519811026, guid: f71ec7341507b9a55846333645e2fa24, type: 3}
-  palletPrefab: {fileID: 8192432775437002876, guid: de7659ea0bc0f7b9689c5148755ab63a, type: 3}
+  palletPrefab: {fileID: 6912139041269147869, guid: de7659ea0bc0f7b9689c5148755ab63a, type: 3}
+  wallPrefab: {fileID: 639083240164945478, guid: 3202c1d2bdc173371bcd29825baca53a, type: 3}
+  staticObstaclePrefab: {fileID: 7859636980079499138, guid: 6f57ffadfa9976687b017fbb2ac559ef, type: 3}
+  humanObstaclePrefab: {fileID: 5196525203756104260, guid: 2c58606fde9bc778cac09f59d8b799f5, type: 3}
+  stationOutageIndicatorPrefab: {fileID: 4635887202953295915, guid: 8843b0b4ff18ec956bba987a3d4324ac, type: 3}
 --- !u!4 &1833963257
 Transform:
   m_ObjectHideFlags: 0
